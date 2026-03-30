@@ -114,8 +114,22 @@ export class Scheduler {
       }
     } catch (err) {
       console.error(`[scheduler] 触发提醒失败: id=${reminder.id}`, err);
-      // 即使发送失败也标记为已触发，避免反复重试
-      this.store.markFired(reminder.id);
+
+      // 递增重试计数，不标记为已触发，下次 tick 会再次尝试
+      this.store.incrementRetryCount(reminder.id);
+      const newRetryCount = reminder.retryCount + 1;
+
+      if (newRetryCount >= 3) {
+        // 重试已达上限，标记为已触发并放弃
+        console.error(
+          `[scheduler] 提醒发送失败已达上限(${newRetryCount}次)，放弃: id=${reminder.id}, user=${reminder.userId}, content="${reminder.content}"`,
+        );
+        this.store.markFired(reminder.id);
+      } else {
+        console.warn(
+          `[scheduler] 提醒将在下次 tick 重试(${newRetryCount}/3): id=${reminder.id}`,
+        );
+      }
     }
   }
 }

@@ -27,6 +27,7 @@ export class Store {
     this.db = new Database(dbPath);
     this.db.pragma("journal_mode = WAL");
     this.initTables();
+    this.migrate();
   }
 
   /** 创建所需的数据表 */
@@ -50,6 +51,7 @@ export class Store {
         trigger_at      INTEGER NOT NULL,
         repeat_cron     TEXT,
         fired           INTEGER NOT NULL DEFAULT 0,
+        retry_count     INTEGER NOT NULL DEFAULT 0,
         created_at      TEXT NOT NULL DEFAULT (datetime('now'))
       );
 
@@ -58,6 +60,16 @@ export class Store {
       CREATE INDEX IF NOT EXISTS idx_reminders_user
         ON reminders(installation_id, user_id);
     `);
+  }
+
+  /** 数据库迁移：为已有表添加缺失字段 */
+  private migrate(): void {
+    // 检查 reminders 表是否已有 retry_count 字段，若无则添加
+    const columns = this.db.prepare("PRAGMA table_info(reminders)").all() as { name: string }[];
+    const hasRetryCount = columns.some((col) => col.name === "retry_count");
+    if (!hasRetryCount) {
+      this.db.exec("ALTER TABLE reminders ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0");
+    }
   }
 
   // ─── Installation 操作 ─────────────────────────────────
@@ -181,12 +193,12 @@ export class Store {
     return result.changes;
   }
 
-  /** 获取所有已到期且未触发的提醒 */
+  /** 获取所有已到期、未触发且重试次数未超限的提醒 */
   getDueReminders(nowSec: number): Reminder[] {
     const rows = this.db
       .prepare(
         `SELECT * FROM reminders
-         WHERE trigger_at <= ? AND fired = 0
+         WHERE trigger_at <= ? AND fired = 0 AND retry_count < 3
          ORDER BY trigger_at ASC`,
       )
       .all(nowSec) as Record<string, any>[];
@@ -198,6 +210,13 @@ export class Store {
   markFired(reminderId: number): void {
     this.db
       .prepare("UPDATE reminders SET fired = 1 WHERE id = ?")
+      .run(reminderId);
+  }
+
+  /** 递增提醒的重试计数 */
+  incrementRetryCount(reminderId: number): void {
+    this.db
+      .prepare("UPDATE reminders SET retry_count = retry_count + 1 WHERE id = ?")
       .run(reminderId);
   }
 
@@ -218,6 +237,7 @@ export class Store {
       triggerAt: row.trigger_at,
       repeatCron: row.repeat_cron ?? null,
       fired: row.fired,
+      retryCount: row.retry_count ?? 0,
       createdAt: row.created_at,
     };
   }

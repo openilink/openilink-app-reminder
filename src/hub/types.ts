@@ -128,6 +128,8 @@ export interface Reminder {
   repeatCron: string | null;
   /** 是否已触发（0/1） */
   fired: number;
+  /** 发送重试次数 */
+  retryCount: number;
   /** 创建时间 */
   createdAt: string;
 }
