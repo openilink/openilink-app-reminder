@@ -1,0 +1,19 @@
+version: "3.8"
+
+services:
+  reminder:
+    build: .
+    container_name: openilink-app-reminder
+    restart: unless-stopped
+    ports:
+      - "8094:8094"
+    environment:
+      - HUB_URL=${HUB_URL}
+      - BASE_URL=${BASE_URL}
+      - DB_PATH=/data/reminder.db
+      - PORT=8094
+    volumes:
+      - reminder-data:/data
+
+volumes:
+  reminder-data:
